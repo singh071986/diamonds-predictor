@@ -6,6 +6,21 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 
+def prompt_text(message, default=''):
+    """Read user input, falling back to default when stdin is unavailable."""
+    try:
+        value = input(message).strip()
+    except EOFError:
+        value = ''
+
+    if value:
+        return value
+
+    if default:
+        print(f'No interactive input detected. Using default: {default}')
+    return default
+
+
 def prepare_clean_data(df):
     """Return a consistently cleaned dataframe for all downstream tasks.
 
@@ -46,17 +61,21 @@ def run_analyzer(data_path='diamonds.csv', output_path='cleaned_diamonds.csv'):
 
 def run_classification(data):
     cleaned = prepare_clean_data(data)
-    encoded = encode_categoricals(cleaned)
-    classifier = Classifier(encoded, target='cut')
+    features = cleaned.drop(columns=['cut'])
+    # One-hot encoding prevents introducing false order between category values.
+    encoded_features = pd.get_dummies(features, drop_first=False)
+    classification_data = pd.concat([encoded_features, cleaned['cut'].reset_index(drop=True)], axis=1)
+
+    classifier = Classifier(classification_data, target='cut')
     X_train, X_test, y_train, y_test = train_test_split(
-        classifier.X, classifier.y, test_size=0.2, random_state=42
+        classifier.X, classifier.y, test_size=0.2, random_state=42, stratify=classifier.y
     )
 
     classifier.fit('logistic_regression', X_train, y_train, max_iter=1000)
     best_k, _, _ = classifier.tune_knn()
     classifier.fit('knn', X_train, y_train, k=best_k)
     classifier.fit('decision_tree', X_train, y_train, criterion='gini')
-    classifier.fit('random_forest', X_train, y_train, criterion='gini', n_estimators=200)
+    classifier.fit('random_forest', X_train, y_train, criterion='gini', n_estimators=500)
     classifier.fit('svc', X_train, y_train, kernel='rbf', C=2.0)
 
     metrics = {}
@@ -119,10 +138,35 @@ def run_clustering(data):
 
 if __name__ == '__main__':
     analyzed_data = run_analyzer('diamonds.csv', 'cleaned_diamonds.csv')
-    # classification_metrics = run_classification(analyzed_data)
-    # regression_metrics = run_regression(analyzed_data)
-    # clustering_metrics = run_clustering(analyzed_data)
 
-    # print('Classification metrics:', classification_metrics)
-    # print('Regression metrics:', regression_metrics)
-    # print('Clustering metrics:', clustering_metrics)
+    print('Choose data to run models on:')
+    print('1) Whole cleaned data')
+    print('2) Custom record count')
+    data_choice = prompt_text('Enter 1 or 2 [default: 1]: ', default='1')
+
+    if data_choice == '2':
+        total_rows = len(analyzed_data)
+        while True:
+            count_text = prompt_text(
+                f'Enter number of records to use (1 to {total_rows}) [default: {total_rows}]: ',
+                default=str(total_rows),
+            )
+            if count_text.isdigit() and int(count_text) > 0:
+                requested_count = int(count_text)
+                break
+            print('Invalid input. Please enter a positive integer.')
+
+        custom_count = min(requested_count, total_rows)
+        selected_data = analyzed_data.sample(n=custom_count, random_state=42)
+        print(f'Using custom sample with {len(selected_data)} rows.')
+    else:
+        selected_data = analyzed_data
+        print(f'Using whole cleaned data with {len(selected_data)} rows.')
+
+    classification_metrics = run_classification(selected_data)
+    regression_metrics = run_regression(selected_data)
+    clustering_metrics = run_clustering(selected_data)
+
+    print('Classification metrics:', classification_metrics)
+    print('Regression metrics:', regression_metrics)
+    print('Clustering metrics:', clustering_metrics)

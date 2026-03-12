@@ -56,6 +56,8 @@ dimond_project/
 From project root, run:
 
 ```bash
+conda deactivate
+deactivate 2>/dev/null || true
 bash scripts/setup_conda.sh
 ```
 
@@ -64,6 +66,9 @@ Optional custom env name and Python version:
 ```bash
 bash scripts/setup_conda.sh my_env 3.10
 ```
+
+If you use a custom name (for example `my_env`), use that same name in all
+`conda run -n ...` commands below.
 
 ### Manual fallback (only if needed)
 
@@ -80,7 +85,19 @@ conda run -n diamond_env python -c "import tensorflow as tf; print(tf.__version_
 2. Execute pipeline
 
 ```bash
-python main.py
+conda run -n diamond_env python main.py
+```
+
+If you created `my_env` instead, run:
+
+```bash
+conda run -n my_env python main.py
+```
+
+Optional sanity check for package import in a specific env:
+
+```bash
+conda run -n diamond_env python -c "import pandas as pd; print(pd.__version__)"
 ```
 
 Artifacts are saved under `artifacts/`.
@@ -90,7 +107,13 @@ Artifacts are saved under `artifacts/`.
 Run all tests:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+conda run -n diamond_env python -m unittest discover -s tests -p "test_*.py"
+```
+
+If you created `my_env` instead, run:
+
+```bash
+conda run -n my_env python -m unittest discover -s tests -p "test_*.py"
 ```
 
 ## Notes

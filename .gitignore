@@ -1,2 +1,8 @@
 __pycache__/
 *.py[cod]
+artifacts/boxplot_price.png
+artifacts/classifier_confusion_matrix.png
+artifacts/clustering_elbow.png
+artifacts/correlation_matrix.png
+artifacts/histograms_numerical.png
+artifacts/pairplot.png
