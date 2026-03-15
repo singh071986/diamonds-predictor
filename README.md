@@ -102,6 +102,78 @@ conda run -n diamond_env python -c "import pandas as pd; print(pd.__version__)"
 
 Artifacts are saved under `artifacts/`.
 
+## Test User-Provided Input (Saved SVC Model)
+
+After running the pipeline once, an SVC model bundle is saved under:
+
+```text
+artifacts/models/svc_cut_model.joblib
+```
+
+You can test custom user input using `predict_svc.py` in two ways.
+
+1. JSON input (single command):
+
+```bash
+conda run -n diamond_env python predict_svc.py \
+	--model-path artifacts/models/svc_cut_model.joblib \
+	--json '{"carat":0.7,"color":"E","clarity":"VS2","depth":61.8,"table":57.0,"price":3400,"x":5.7,"y":5.72,"z":3.53}'
+```
+
+If you use `my_env`, run:
+
+```bash
+conda run -n my_env python predict_svc.py \
+	--model-path artifacts/models/svc_cut_model.joblib \
+	--json '{"carat":0.7,"color":"E","clarity":"VS2","depth":61.8,"table":57.0,"price":3400,"x":5.7,"y":5.72,"z":3.53}'
+```
+
+2. Interactive input (prompted field-by-field):
+
+```bash
+conda run -n diamond_env python predict_svc.py --model-path artifacts/models/svc_cut_model.joblib
+```
+
+If you use `my_env`, run:
+
+```bash
+conda run -n my_env python predict_svc.py --model-path artifacts/models/svc_cut_model.joblib
+```
+
+The script prints the predicted class, for example: `Predicted cut: Ideal`.
+
+## Test User Input via Node.js (Using Saved SVC Model)
+
+`predict_svc_node.js` is a Node wrapper that calls `predict_svc.py`, so Node can use the saved scikit-learn SVC model.
+
+1. Ensure Node.js is installed:
+
+```bash
+node -v
+```
+
+2. Run prediction with JSON input:
+
+```bash
+node predict_svc_node.js \
+	--model-path artifacts/models/svc_cut_model.joblib \
+	--json '{"carat":0.7,"color":"E","clarity":"VS2","depth":61.8,"table":57.0,"price":3400,"x":5.7,"y":5.72,"z":3.53}'
+```
+
+3. If needed, point Node to a specific Python executable path:
+
+```bash
+PYTHON_CMD=/opt/anaconda3/bin/python node predict_svc_node.js \
+	--model-path artifacts/models/svc_cut_model.joblib \
+	--json '{"carat":0.7,"color":"E","clarity":"VS2","depth":61.8,"table":57.0,"price":3400,"x":5.7,"y":5.72,"z":3.53}'
+```
+
+Expected output:
+
+```text
+Prediction: Ideal
+```
+
 ## Tests
 
 Run all tests:
@@ -121,3 +193,11 @@ conda run -n my_env python -m unittest discover -s tests -p "test_*.py"
 1. ANN models require TensorFlow/Keras and can be slower on CPU-only machines.
 2. Exact metrics vary by split and sample size.
 3. Base install includes TensorFlow/Keras, so use Python 3.10-3.12 for best compatibility.
+
+
+
+python predict_svc.py --model-path artifacts/models/svc_cut_model_test.joblib --json '{"carat":0.7,"color":"E","clarity":"VS2","depth":61.8,"table":57.0,"price":3400,"x":5.7,"y":5.72,"z":3.53}'
+
+
+
+node predict_svc_node.js --model-path artifacts/models/svc_cut_model_test.joblib --json '{"carat":0.7,"color":"E","clarity":"VS2","depth":61.8,"table":57.0,"price":3400,"x":5.7,"y":5.72,"z":3.53}'

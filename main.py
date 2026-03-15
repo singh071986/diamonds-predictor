@@ -3,10 +3,17 @@ from Classifier import Classifier
 from Regressor import Regressor
 # from Clustering import Clustering
 import os
+from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+import joblib
 
 
 def prompt_text(message, default=''):
@@ -24,9 +31,17 @@ def prompt_text(message, default=''):
     return default
 
 
+def prompt_positive_int(message, default):
+    """Read a positive integer with fallback default."""
+    while True:
+        value = prompt_text(message, default=str(default))
+        if value.isdigit() and int(value) > 0:
+            return int(value)
+        print('Invalid input. Please enter a positive integer.')
+
+
 def prepare_clean_data(df):
     """Return a consistently cleaned dataframe for all downstream tasks.
-
     Cleaning rules:
     1) Drop auto-generated index columns (e.g., Unnamed: 0).
     2) Drop rows with missing values.
@@ -46,6 +61,9 @@ def encode_categoricals(df):
 
 def plot_classification_metrics(metrics, save_path='artifacts/classification_model_comparison.png', show=False):
     os.makedirs(os.path.dirname(save_path), exist_ok=True) if os.path.dirname(save_path) else None
+    base, ext = os.path.splitext(save_path)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamped_save_path = f'{base}_{timestamp}{ext or ".png"}'
     labels = list(metrics.keys())
     values = [metrics[label] for label in labels]
 
@@ -60,7 +78,7 @@ def plot_classification_metrics(metrics, save_path='artifacts/classification_mod
         plt.text(bar.get_x() + bar.get_width() / 2, value, f'{value:.3f}', ha='center', va='bottom')
 
     plt.tight_layout()
-    plt.savefig(save_path)
+    plt.savefig(timestamped_save_path)
     if show:
         plt.show()
     else:
@@ -112,11 +130,19 @@ def run_analyzer(data_path='diamonds.csv', output_path='cleaned_diamonds.csv'):
     return analyzer.data
 
 
-def run_classification(data):
+def run_classification(data, ann_config=None):
     cleaned = prepare_clean_data(data)
     features = cleaned.drop(columns=['cut'])
     categorical_columns = features.select_dtypes(include=['object', 'string', 'category']).columns
     numeric_columns = features.select_dtypes(include=['number']).columns
+
+    if ann_config is None:
+        ann_config = {
+            'epochs': 20,
+            'batch_size': 32,
+            'hidden_1': 64,
+            'hidden_2': 32,
+        }
 
     # Build final feature matrix X by combining:
     # 1) one-hot encoded categorical columns and
@@ -125,8 +151,6 @@ def run_classification(data):
         encoded_categorical = pd.get_dummies(
             features[categorical_columns], drop_first=False, dtype=float
         )
-    else:
-        encoded_categorical = pd.DataFrame(index=features.index)
 
     if len(numeric_columns) > 0:
         scaler = StandardScaler()
@@ -135,8 +159,7 @@ def run_classification(data):
             columns=numeric_columns,
             index=features.index,
         )
-    else:
-        scaled_numeric = pd.DataFrame(index=features.index)
+
 
     X = pd.concat([scaled_numeric, encoded_categorical], axis=1)
     classification_data = pd.concat([X, cleaned['cut'].reset_index(drop=True)], axis=1)
@@ -153,8 +176,22 @@ def run_classification(data):
     classifier.fit('random_forest', X_train, y_train, criterion='gini', n_estimators=500)
     classifier.fit('svc', X_train, y_train, kernel='rbf', C=2.0)
 
+    classifier.fit(
+        'ann',
+        X_train,
+        y_train,
+        input_dim=X_train.shape[1],
+        n_classes=len(pd.Series(y_train).unique()),
+        epochs=ann_config['epochs'],
+        batch_size=ann_config['batch_size'],
+        hidden_1=ann_config['hidden_1'],
+        hidden_2=ann_config['hidden_2'],
+    )
+
     metrics = {}
-    for model in ['logistic_regression', 'knn', 'decision_tree', 'random_forest', 'svc']:
+    models_to_score = ['logistic_regression', 'knn', 'decision_tree', 'random_forest', 'svc', 'ann']
+
+    for model in models_to_score:
         metrics[model] = classifier.score(model, X_test, y_test, metric='accuracy')
 
     classifier.plot_confusion_matrix('random_forest', X_test, y_test, save_path='artifacts/classifier_confusion_matrix.png', show=False)
@@ -189,6 +226,52 @@ def run_regression(data):
     for model in ['linear_regression', 'knn', 'decision_tree', 'random_forest', 'svr']:
         metrics[model] = regressor.score(model, X_test, y_test)
     return metrics
+
+
+def train_and_save_svc_model(data, model_path='artifacts/models/svc_cut_model.joblib'):
+    cleaned = prepare_clean_data(data)
+    X = cleaned.drop(columns=['cut'])
+    y = cleaned['cut']
+
+    categorical_columns = X.select_dtypes(include=['object', 'string', 'category']).columns.tolist()
+    numeric_columns = X.select_dtypes(include=['number']).columns.tolist()
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('numeric', StandardScaler(), numeric_columns),
+            ('categorical', OneHotEncoder(handle_unknown='ignore'), categorical_columns),
+        ]
+    )
+
+    svc_pipeline = Pipeline(
+        steps=[
+            ('preprocessor', preprocessor),
+            ('model', SVC(kernel='rbf', C=2.0, gamma='scale')),
+        ]
+    )
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42, stratify=y
+    )
+    svc_pipeline.fit(X_train, y_train)
+    test_accuracy = accuracy_score(y_test, svc_pipeline.predict(X_test))
+
+    # Refit on full selected data before saving for inference usage.
+    svc_pipeline.fit(X, y)
+
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    joblib.dump(
+        {
+            'model': svc_pipeline,
+            'feature_columns': X.columns.tolist(),
+            'numeric_columns': numeric_columns,
+            'categorical_columns': categorical_columns,
+            'created_at': datetime.now().isoformat(timespec='seconds'),
+            'holdout_accuracy': float(test_accuracy),
+        },
+        model_path,
+    )
+    return model_path, test_accuracy
 
 
 # def run_clustering(data):
@@ -239,13 +322,25 @@ if __name__ == '__main__':
         selected_data = original_data
         print(f'Using whole cleaned data with {len(selected_data)} rows.')
 
-    classification_metrics = run_classification(selected_data)
+    print('Optional ANN hyperparameters for classification:')
+    ann_config = {
+        'epochs': prompt_positive_int('ANN epochs [default: 20]: ', 20),
+        'batch_size': prompt_positive_int('ANN batch size [default: 32]: ', 32),
+        'hidden_1': prompt_positive_int('ANN hidden layer 1 units [default: 64]: ', 64),
+        'hidden_2': prompt_positive_int('ANN hidden layer 2 units [default: 32]: ', 32),
+    }
+
+    classification_metrics = run_classification(selected_data, ann_config=ann_config)
     plot_classification_metrics(classification_metrics, show=False)
     print('Classification metrics:', classification_metrics)
 
-    regression_metrics = run_regression(selected_data)
-    plot_regression_metrics(regression_metrics, show=False)
-    print('Regression metrics:', regression_metrics)
+    svc_model_path, svc_holdout_accuracy = train_and_save_svc_model(selected_data)
+    print(f'Saved SVC model: {svc_model_path}')
+    print(f'SVC holdout accuracy before final refit: {svc_holdout_accuracy:.4f}')
+
+    # regression_metrics = run_regression(selected_data)
+    # plot_regression_metrics(regression_metrics, show=False)
+    # print('Regression metrics:', regression_metrics)
     # clustering_metrics = run_clustering(selected_data)
 
     
