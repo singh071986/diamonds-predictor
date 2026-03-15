@@ -40,7 +40,7 @@ class Analyzer:
         return self.data.describe(include='all')
 
     def show_info(self):
-        print(self.data.info())
+        print(f"show_info::{self.data.info()}")
 
     def show_head(self):
         print(self.data.head())
@@ -196,7 +196,8 @@ class Analyzer:
         """
         base_data = self._drop_unnamed_columns(self.data)
         categorical_columns = (
-            base_data.select_dtypes(include=['object', 'string', 'category']).columns
+            #base_data.select_dtypes(include=['object', 'string', 'category']).columns
+            base_data.select_dtypes(exclude=['number']).columns if columns is None else columns
             if columns is None
             else columns
         )

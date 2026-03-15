@@ -1,9 +1,12 @@
 from Analyzer import Analyzer
 from Classifier import Classifier
 from Regressor import Regressor
-from Clustering import Clustering
+# from Clustering import Clustering
+import os
 import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 
 def prompt_text(message, default=''):
@@ -37,23 +40,73 @@ def prepare_clean_data(df):
 
 
 def encode_categoricals(df):
-    encoded = df.copy()
-    categorical_columns = encoded.select_dtypes(include=['object', 'string', 'category']).columns
-    for col in categorical_columns:
-        encoded[col] = encoded[col].astype('category').cat.codes
-    return encoded
+    categorical_columns = df.select_dtypes(include=['object', 'string', 'category']).columns
+    return pd.get_dummies(df, columns=categorical_columns, drop_first=False, dtype=float)
+
+
+def plot_classification_metrics(metrics, save_path='artifacts/classification_model_comparison.png', show=False):
+    os.makedirs(os.path.dirname(save_path), exist_ok=True) if os.path.dirname(save_path) else None
+    labels = list(metrics.keys())
+    values = [metrics[label] for label in labels]
+
+    plt.figure(figsize=(10, 5))
+    bars = plt.bar(labels, values)
+    plt.ylabel('Accuracy')
+    plt.title('Classification Model Comparison')
+    plt.ylim(0, 1)
+    plt.xticks(rotation=20, ha='right')
+
+    for bar, value in zip(bars, values):
+        plt.text(bar.get_x() + bar.get_width() / 2, value, f'{value:.3f}', ha='center', va='bottom')
+
+    plt.tight_layout()
+    plt.savefig(save_path)
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def plot_regression_metrics(metrics, save_path='artifacts/regression_model_comparison.png', show=False):
+    os.makedirs(os.path.dirname(save_path), exist_ok=True) if os.path.dirname(save_path) else None
+    models = list(metrics.keys())
+    metric_names = ['R2', 'MAE', 'RMSE', 'MSE']
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    axes = axes.flatten()
+
+    for idx, metric_name in enumerate(metric_names):
+        values = [metrics[model][metric_name] for model in models]
+        bars = axes[idx].bar(models, values)
+        axes[idx].set_title(metric_name)
+        axes[idx].tick_params(axis='x', rotation=20)
+
+        for bar, value in zip(bars, values):
+            axes[idx].text(bar.get_x() + bar.get_width() / 2, value, f'{value:.3f}', ha='center', va='bottom')
+
+    fig.suptitle('Regression Model Comparison', y=1.02)
+    fig.tight_layout()
+    fig.savefig(save_path)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
 def run_analyzer(data_path='diamonds.csv', output_path='cleaned_diamonds.csv'):
     analyzer = Analyzer(data_path)
     analyzer.show_info()
+
+    # Plot category distributions before preprocessing converts categories to numeric values.
+    analyzer.data = prepare_clean_data(analyzer.data)
+    analyzer.plot_histograms_categorical(save_dir='artifacts/categorical_histograms', show=False)
+
     analyzer.preprocess_data()
     # Enforce shared cleaning policy before artifacts and export.
     analyzer.data = prepare_clean_data(analyzer.data)
     analyzer.save_cleaned_data(output_path)
     analyzer.plot_correlation_matrix(save_path='artifacts/correlation_matrix.png', show=False)
     analyzer.plot_histograms_numerical(save_path='artifacts/histograms_numerical.png', show=False)
-    analyzer.plot_histograms_categorical(save_dir='artifacts/categorical_histograms', show=False)
     analyzer.plot_pairPlot(save_path='artifacts/pairplot.png', show=False)
     analyzer.plot_boxPlot('price', save_path='artifacts/boxplot_price.png', show=False)
     return analyzer.data
@@ -62,9 +115,31 @@ def run_analyzer(data_path='diamonds.csv', output_path='cleaned_diamonds.csv'):
 def run_classification(data):
     cleaned = prepare_clean_data(data)
     features = cleaned.drop(columns=['cut'])
-    # One-hot encoding prevents introducing false order between category values.
-    encoded_features = pd.get_dummies(features, drop_first=False)
-    classification_data = pd.concat([encoded_features, cleaned['cut'].reset_index(drop=True)], axis=1)
+    categorical_columns = features.select_dtypes(include=['object', 'string', 'category']).columns
+    numeric_columns = features.select_dtypes(include=['number']).columns
+
+    # Build final feature matrix X by combining:
+    # 1) one-hot encoded categorical columns and
+    # 2) scaled numeric columns.
+    if len(categorical_columns) > 0:
+        encoded_categorical = pd.get_dummies(
+            features[categorical_columns], drop_first=False, dtype=float
+        )
+    else:
+        encoded_categorical = pd.DataFrame(index=features.index)
+
+    if len(numeric_columns) > 0:
+        scaler = StandardScaler()
+        scaled_numeric = pd.DataFrame(
+            scaler.fit_transform(features[numeric_columns]),
+            columns=numeric_columns,
+            index=features.index,
+        )
+    else:
+        scaled_numeric = pd.DataFrame(index=features.index)
+
+    X = pd.concat([scaled_numeric, encoded_categorical], axis=1)
+    classification_data = pd.concat([X, cleaned['cut'].reset_index(drop=True)], axis=1)
 
     classifier = Classifier(classification_data, target='cut')
     X_train, X_test, y_train, y_test = train_test_split(
@@ -116,28 +191,29 @@ def run_regression(data):
     return metrics
 
 
-def run_clustering(data):
-    cleaned = prepare_clean_data(data)
-    encoded = encode_categoricals(cleaned)
-    features = encoded.drop(columns=['cut', 'clarity'], errors='ignore')
-    clustering = Clustering(features)
+# def run_clustering(data):
+#     cleaned = prepare_clean_data(data)
+#     encoded = encode_categoricals(cleaned)
+#     features = encoded.drop(columns=['cut', 'clarity'], errors='ignore')
+#     clustering = Clustering(features)
 
-    elbow = clustering.elbow_with_silhouette(max_k=8)
-    clustering.elbow_curve(max_k=8, save_path='artifacts/clustering_elbow.png', show=False)
-    labels_kmeans = clustering.fit('kmeans', n_clusters=3)
-    labels_agglomerative = clustering.fit('agglomerative', n_clusters=3)
-    labels_meanshift = clustering.fit('mean_shift')
+#     elbow = clustering.elbow_with_silhouette(max_k=8)
+#     clustering.elbow_curve(max_k=8, save_path='artifacts/clustering_elbow.png', show=False)
+#     labels_kmeans = clustering.fit('kmeans', n_clusters=3)
+#     labels_agglomerative = clustering.fit('agglomerative', n_clusters=3)
+#     labels_meanshift = clustering.fit('mean_shift')
 
-    return {
-        'kmeans_inertia': clustering.get_kmeans_inertia(),
-        'elbow': elbow,
-        'kmeans_labels_count': len(labels_kmeans),
-        'agglomerative_labels_count': len(labels_agglomerative),
-        'meanshift_labels_count': len(labels_meanshift),
-    }
+#     return {
+#         'kmeans_inertia': clustering.get_kmeans_inertia(),
+#         'elbow': elbow,
+#         'kmeans_labels_count': len(labels_kmeans),
+#         'agglomerative_labels_count': len(labels_agglomerative),
+#         'meanshift_labels_count': len(labels_meanshift),
+#     }
 
 if __name__ == '__main__':
     analyzed_data = run_analyzer('diamonds.csv', 'cleaned_diamonds.csv')
+    original_data = prepare_clean_data(pd.read_csv('diamonds.csv'))
 
     print('Choose data to run models on:')
     print('1) Whole cleaned data')
@@ -145,7 +221,7 @@ if __name__ == '__main__':
     data_choice = prompt_text('Enter 1 or 2 [default: 1]: ', default='1')
 
     if data_choice == '2':
-        total_rows = len(analyzed_data)
+        total_rows = len(original_data)
         while True:
             count_text = prompt_text(
                 f'Enter number of records to use (1 to {total_rows}) [default: {total_rows}]: ',
@@ -157,16 +233,21 @@ if __name__ == '__main__':
             print('Invalid input. Please enter a positive integer.')
 
         custom_count = min(requested_count, total_rows)
-        selected_data = analyzed_data.sample(n=custom_count, random_state=42)
+        selected_data = original_data.sample(n=custom_count, random_state=42)
         print(f'Using custom sample with {len(selected_data)} rows.')
     else:
-        selected_data = analyzed_data
+        selected_data = original_data
         print(f'Using whole cleaned data with {len(selected_data)} rows.')
 
     classification_metrics = run_classification(selected_data)
-    regression_metrics = run_regression(selected_data)
-    clustering_metrics = run_clustering(selected_data)
-
+    plot_classification_metrics(classification_metrics, show=False)
     print('Classification metrics:', classification_metrics)
+
+    regression_metrics = run_regression(selected_data)
+    plot_regression_metrics(regression_metrics, show=False)
     print('Regression metrics:', regression_metrics)
-    print('Clustering metrics:', clustering_metrics)
+    # clustering_metrics = run_clustering(selected_data)
+
+    
+   
+    # print('Clustering metrics:', clustering_metrics)
