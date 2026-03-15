@@ -13,6 +13,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import LabelEncoder
 import joblib
 
 
@@ -274,6 +275,89 @@ def train_and_save_svc_model(data, model_path='artifacts/models/svc_cut_model.jo
     return model_path, test_accuracy
 
 
+def train_and_save_ann_model(data, ann_config, bundle_path='artifacts/models/ann_cut_model.joblib'):
+    cleaned = prepare_clean_data(data)
+    X = cleaned.drop(columns=['cut'])
+    y = cleaned['cut']
+
+    categorical_columns = X.select_dtypes(include=['object', 'string', 'category']).columns.tolist()
+    numeric_columns = X.select_dtypes(include=['number']).columns.tolist()
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('numeric', StandardScaler(), numeric_columns),
+            ('categorical', OneHotEncoder(handle_unknown='ignore'), categorical_columns),
+        ]
+    )
+
+    label_encoder = LabelEncoder()
+    y_encoded = label_encoder.fit_transform(y)
+
+    # Import TensorFlow only when ANN training is requested.
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Dense
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+    )
+
+    X_train_t = preprocessor.fit_transform(X_train)
+    X_test_t = preprocessor.transform(X_test)
+
+    model = Sequential([
+        Dense(ann_config['hidden_1'], activation='relu', input_dim=X_train_t.shape[1]),
+        Dense(ann_config['hidden_2'], activation='relu'),
+        Dense(len(label_encoder.classes_), activation='softmax'),
+    ])
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    model.fit(
+        X_train_t,
+        y_train,
+        epochs=ann_config['epochs'],
+        batch_size=ann_config['batch_size'],
+        verbose=0,
+    )
+    _, test_accuracy = model.evaluate(X_test_t, y_test, verbose=0)
+
+    # Refit preprocessor and ANN on full selected data for inference use.
+    X_full_t = preprocessor.fit_transform(X)
+    model_full = Sequential([
+        Dense(ann_config['hidden_1'], activation='relu', input_dim=X_full_t.shape[1]),
+        Dense(ann_config['hidden_2'], activation='relu'),
+        Dense(len(label_encoder.classes_), activation='softmax'),
+    ])
+    model_full.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    model_full.fit(
+        X_full_t,
+        y_encoded,
+        epochs=ann_config['epochs'],
+        batch_size=ann_config['batch_size'],
+        verbose=0,
+    )
+
+    model_dir = os.path.dirname(bundle_path)
+    os.makedirs(model_dir, exist_ok=True)
+    ann_model_path = os.path.join(model_dir, 'ann_cut_model.keras')
+    model_full.save(ann_model_path)
+
+    joblib.dump(
+        {
+            'model_type': 'ann',
+            'keras_model_path': ann_model_path,
+            'preprocessor': preprocessor,
+            'label_encoder': label_encoder,
+            'feature_columns': X.columns.tolist(),
+            'numeric_columns': numeric_columns,
+            'categorical_columns': categorical_columns,
+            'created_at': datetime.now().isoformat(timespec='seconds'),
+            'holdout_accuracy': float(test_accuracy),
+            'ann_config': ann_config,
+        },
+        bundle_path,
+    )
+    return bundle_path, float(test_accuracy)
+
+
 # def run_clustering(data):
 #     cleaned = prepare_clean_data(data)
 #     encoded = encode_categoricals(cleaned)
@@ -338,9 +422,13 @@ if __name__ == '__main__':
     print(f'Saved SVC model: {svc_model_path}')
     print(f'SVC holdout accuracy before final refit: {svc_holdout_accuracy:.4f}')
 
-    # regression_metrics = run_regression(selected_data)
-    # plot_regression_metrics(regression_metrics, show=False)
-    # print('Regression metrics:', regression_metrics)
+    ann_bundle_path, ann_holdout_accuracy = train_and_save_ann_model(selected_data, ann_config=ann_config)
+    print(f'Saved ANN model bundle: {ann_bundle_path}')
+    print(f'ANN holdout accuracy before final refit: {ann_holdout_accuracy:.4f}')
+
+    regression_metrics = run_regression(selected_data)
+    plot_regression_metrics(regression_metrics, show=False)
+    print('Regression metrics:', regression_metrics)
     # clustering_metrics = run_clustering(selected_data)
 
     
