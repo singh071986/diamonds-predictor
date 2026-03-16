@@ -127,7 +127,7 @@ def run_analyzer(data_path='diamonds.csv', output_path='cleaned_diamonds.csv'):
     analyzer.save_cleaned_data(output_path)
     analyzer.plot_correlation_matrix(save_path='artifacts/correlation_matrix.png', show=False)
     
-    #analyzer.plot_pairPlot(save_path='artifacts/pairplot.png', show=False) #taking more time.
+    analyzer.plot_pairPlot(save_path='artifacts/pairplot.png', show=False) #taking more time.
     analyzer.plot_boxPlot('price', save_path='artifacts/boxplot_price.png', show=False)
     return analyzer.data
 

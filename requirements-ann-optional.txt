@@ -1,4 +1,0 @@
-# Optional ANN dependencies (install only if needed)
-# Recommended Python: 3.10-3.12
-tensorflow
-keras
