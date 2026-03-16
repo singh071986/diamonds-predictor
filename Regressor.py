@@ -251,6 +251,8 @@ class Regressor:
             return prediction.flatten()
         return prediction
 
+    
+
     def score(self, model_name, X_test, y_test):
         """
         Evaluate a trained model using regression metrics.

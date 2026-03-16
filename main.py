@@ -119,14 +119,15 @@ def run_analyzer(data_path='diamonds.csv', output_path='cleaned_diamonds.csv'):
     # Plot category distributions before preprocessing converts categories to numeric values.
     analyzer.data = prepare_clean_data(analyzer.data)
     analyzer.plot_histograms_categorical(save_dir='artifacts/categorical_histograms', show=False)
+    analyzer.plot_histograms_numerical(save_path='artifacts/histograms_numerical.png', show=False)
 
     analyzer.preprocess_data()
     # Enforce shared cleaning policy before artifacts and export.
     analyzer.data = prepare_clean_data(analyzer.data)
     analyzer.save_cleaned_data(output_path)
     analyzer.plot_correlation_matrix(save_path='artifacts/correlation_matrix.png', show=False)
-    analyzer.plot_histograms_numerical(save_path='artifacts/histograms_numerical.png', show=False)
-    analyzer.plot_pairPlot(save_path='artifacts/pairplot.png', show=False)
+    
+    #analyzer.plot_pairPlot(save_path='artifacts/pairplot.png', show=False) #taking more time.
     analyzer.plot_boxPlot('price', save_path='artifacts/boxplot_price.png', show=False)
     return analyzer.data
 
@@ -183,10 +184,10 @@ def run_classification(data, ann_config=None):
         y_train,
         input_dim=X_train.shape[1],
         n_classes=len(pd.Series(y_train).unique()),
-        epochs=ann_config['epochs'],
-        batch_size=ann_config['batch_size'],
-        hidden_1=ann_config['hidden_1'],
-        hidden_2=ann_config['hidden_2'],
+        epochs=20,
+        batch_size=32,
+        hidden_1=64,
+        hidden_2=32,
     )
 
     metrics = {}
@@ -200,9 +201,11 @@ def run_classification(data, ann_config=None):
 
 
 def run_regression(data):
-    cleaned = prepare_clean_data(data)
-    encoded = encode_categoricals(cleaned)
-    regressor = Regressor(encoded, target='price')
+    X_features, y, _ = build_regression_xy(data)
+    reg_data = pd.concat([X_features, y], axis=1)
+    
+  
+    regressor = Regressor(reg_data, target='price')
     X_train, X_test, y_train, y_test = train_test_split(
         regressor.X, regressor.y, test_size=0.2, random_state=42
     )
@@ -305,16 +308,16 @@ def train_and_save_ann_model(data, ann_config, bundle_path='artifacts/models/ann
     X_test_t = preprocessor.transform(X_test)
 
     model = Sequential([
-        Dense(ann_config['hidden_1'], activation='relu', input_dim=X_train_t.shape[1]),
-        Dense(ann_config['hidden_2'], activation='relu'),
+        Dense(64, activation='relu', input_dim=X_train_t.shape[1]),
+        Dense(32, activation='relu'),
         Dense(len(label_encoder.classes_), activation='softmax'),
     ])
     model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
     model.fit(
         X_train_t,
         y_train,
-        epochs=ann_config['epochs'],
-        batch_size=ann_config['batch_size'],
+        epochs=32,
+        batch_size=20,
         verbose=0,
     )
     _, test_accuracy = model.evaluate(X_test_t, y_test, verbose=0)
@@ -322,16 +325,16 @@ def train_and_save_ann_model(data, ann_config, bundle_path='artifacts/models/ann
     # Refit preprocessor and ANN on full selected data for inference use.
     X_full_t = preprocessor.fit_transform(X)
     model_full = Sequential([
-        Dense(ann_config['hidden_1'], activation='relu', input_dim=X_full_t.shape[1]),
-        Dense(ann_config['hidden_2'], activation='relu'),
+        Dense(64, activation='relu', input_dim=X_full_t.shape[1]),
+        Dense(32, activation='relu'),
         Dense(len(label_encoder.classes_), activation='softmax'),
     ])
     model_full.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
     model_full.fit(
         X_full_t,
         y_encoded,
-        epochs=ann_config['epochs'],
-        batch_size=ann_config['batch_size'],
+        epochs=32,
+        batch_size=20,
         verbose=0,
     )
 
@@ -358,25 +361,43 @@ def train_and_save_ann_model(data, ann_config, bundle_path='artifacts/models/ann
     return bundle_path, float(test_accuracy)
 
 
-# def run_clustering(data):
-#     cleaned = prepare_clean_data(data)
-#     encoded = encode_categoricals(cleaned)
-#     features = encoded.drop(columns=['cut', 'clarity'], errors='ignore')
-#     clustering = Clustering(features)
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+import pandas as pd
 
-#     elbow = clustering.elbow_with_silhouette(max_k=8)
-#     clustering.elbow_curve(max_k=8, save_path='artifacts/clustering_elbow.png', show=False)
-#     labels_kmeans = clustering.fit('kmeans', n_clusters=3)
-#     labels_agglomerative = clustering.fit('agglomerative', n_clusters=3)
-#     labels_meanshift = clustering.fit('mean_shift')
+def build_regression_xy(data):
+    cleaned = prepare_clean_data(data)
 
-#     return {
-#         'kmeans_inertia': clustering.get_kmeans_inertia(),
-#         'elbow': elbow,
-#         'kmeans_labels_count': len(labels_kmeans),
-#         'agglomerative_labels_count': len(labels_agglomerative),
-#         'meanshift_labels_count': len(labels_meanshift),
-#     }
+    # 1) Target (keep as-is)
+    y = cleaned["price"].copy()
+
+    # 2) Features (everything except target)
+    X = cleaned.drop(columns=["price"]).copy()
+
+    # 3) Column groups
+    categorical_cols = X.select_dtypes(include=["object", "string", "category"]).columns.tolist()
+    numeric_cols = X.select_dtypes(include=["number"]).columns.tolist()
+
+    
+    try:
+        cat_encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+    except TypeError:
+        cat_encoder = OneHotEncoder(handle_unknown="ignore", sparse=False)
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", StandardScaler(), numeric_cols),
+            ("cat", cat_encoder, categorical_cols),
+        ],
+        remainder="drop",
+)
+
+    X_arr = preprocessor.fit_transform(X)
+    feature_names = preprocessor.get_feature_names_out()
+    X_features = pd.DataFrame(X_arr, columns=feature_names, index=X.index)
+
+    return X_features, y, preprocessor
+
 
 if __name__ == '__main__':
     analyzed_data = run_analyzer('diamonds.csv', 'cleaned_diamonds.csv')
@@ -406,15 +427,8 @@ if __name__ == '__main__':
         selected_data = original_data
         print(f'Using whole cleaned data with {len(selected_data)} rows.')
 
-    print('Optional ANN hyperparameters for classification:')
-    ann_config = {
-        'epochs': prompt_positive_int('ANN epochs [default: 20]: ', 20),
-        'batch_size': prompt_positive_int('ANN batch size [default: 32]: ', 32),
-        'hidden_1': prompt_positive_int('ANN hidden layer 1 units [default: 64]: ', 64),
-        'hidden_2': prompt_positive_int('ANN hidden layer 2 units [default: 32]: ', 32),
-    }
 
-    classification_metrics = run_classification(selected_data, ann_config=ann_config)
+    classification_metrics = run_classification(selected_data, ann_config=None)
     plot_classification_metrics(classification_metrics, show=False)
     print('Classification metrics:', classification_metrics)
 
@@ -422,15 +436,14 @@ if __name__ == '__main__':
     print(f'Saved SVC model: {svc_model_path}')
     print(f'SVC holdout accuracy before final refit: {svc_holdout_accuracy:.4f}')
 
-    ann_bundle_path, ann_holdout_accuracy = train_and_save_ann_model(selected_data, ann_config=ann_config)
+    ann_bundle_path, ann_holdout_accuracy = train_and_save_ann_model(selected_data, ann_config=None)
     print(f'Saved ANN model bundle: {ann_bundle_path}')
     print(f'ANN holdout accuracy before final refit: {ann_holdout_accuracy:.4f}')
 
     regression_metrics = run_regression(selected_data)
     plot_regression_metrics(regression_metrics, show=False)
     print('Regression metrics:', regression_metrics)
-    # clustering_metrics = run_clustering(selected_data)
 
-    
-   
-    # print('Clustering metrics:', clustering_metrics)
+
+
+
