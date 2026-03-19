@@ -88,6 +88,9 @@ def plot_classification_metrics(metrics, save_path='artifacts/classification_mod
 
 def plot_regression_metrics(metrics, save_path='artifacts/regression_model_comparison.png', show=False):
     os.makedirs(os.path.dirname(save_path), exist_ok=True) if os.path.dirname(save_path) else None
+    base, ext = os.path.splitext(save_path)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamped_save_path = f'{base}_{timestamp}{ext or ".png"}'
     models = list(metrics.keys())
     metric_names = ['R2', 'MAE', 'RMSE', 'MSE']
 
@@ -105,7 +108,7 @@ def plot_regression_metrics(metrics, save_path='artifacts/regression_model_compa
 
     fig.suptitle('Regression Model Comparison', y=1.02)
     fig.tight_layout()
-    fig.savefig(save_path)
+    fig.savefig(timestamped_save_path)
     if show:
         plt.show()
     else:
