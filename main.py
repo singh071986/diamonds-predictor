@@ -137,6 +137,7 @@ def run_analyzer(data_path='diamonds.csv', output_path='cleaned_diamonds.csv'):
 
 def run_classification(data, ann_config=None):
     cleaned = prepare_clean_data(data)
+    #cleaned.dropna(inplace=True)
     features = cleaned.drop(columns=['cut'])
     categorical_columns = features.select_dtypes(include=['object', 'string', 'category']).columns
     numeric_columns = features.select_dtypes(include=['number']).columns
@@ -237,6 +238,7 @@ def run_regression(data):
 
 def train_and_save_svc_model(data, model_path='artifacts/models/svc_cut_model.joblib'):
     cleaned = prepare_clean_data(data)
+    cleaned.dropna(inplace=True)
     X = cleaned.drop(columns=['cut'])
     y = cleaned['cut']
 
@@ -370,6 +372,7 @@ import pandas as pd
 
 def build_regression_xy(data):
     cleaned = prepare_clean_data(data)
+    cleaned.dropna(inplace=True)
 
     # 1) Target (keep as-is)
     y = cleaned["price"].copy()
@@ -402,13 +405,31 @@ def build_regression_xy(data):
     return X_features, y, preprocessor
 
 
+def regression_price( selected_data):
+    regression_metrics = run_regression(selected_data)
+    plot_regression_metrics(regression_metrics, show=False)
+    print('Regression metrics:', regression_metrics)
+
+def saved_classification_model(selected_data):
+    svc_model_path, svc_holdout_accuracy = train_and_save_svc_model(selected_data)
+    print(f'Saved SVC model: {svc_model_path}')
+    print(f'SVC holdout accuracy before final refit: {svc_holdout_accuracy:.4f}')
+
+    ann_bundle_path, ann_holdout_accuracy = train_and_save_ann_model(selected_data, ann_config=None)
+    print(f'Saved ANN model bundle: {ann_bundle_path}')
+    print(f'ANN holdout accuracy before final refit: {ann_holdout_accuracy:.4f}')
+
+def classification_train_models(selected_data):
+    classification_metrics = run_classification(selected_data, ann_config=None)
+    plot_classification_metrics(classification_metrics, show=False)
+    print('Classification metrics:', classification_metrics)
+
 if __name__ == '__main__':
     analyzed_data = run_analyzer('diamonds.csv', 'cleaned_diamonds.csv')
-    original_data = prepare_clean_data(pd.read_csv('diamonds.csv'))
-
-
+    
     # Allow user to choose between using the whole cleaned dataset or a custom sample for model training and evaluation.
     #Note: The original data is used as the source for sampling to ensure that the same cleaning steps are applied regardless of the user's choice.
+    original_data = prepare_clean_data(pd.read_csv('diamonds.csv'))
     print('Choose data to run models on:')
     print('1) Whole cleaned data')
     print('2) Custom record count')
@@ -434,22 +455,14 @@ if __name__ == '__main__':
         print(f'Using whole cleaned data with {len(selected_data)} rows.')
     # Note: The original data is used as the source for sampling to ensure that the same cleaning steps are applied regardless of the user's choice.
 
+    #classification metrics and model training 
+    classification_train_models( selected_data)
 
-    classification_metrics = run_classification(selected_data, ann_config=None)
-    plot_classification_metrics(classification_metrics, show=False)
-    print('Classification metrics:', classification_metrics)
+    #save classification models for inference usage and report holdout accuracy before refit on full data.
+    saved_classification_model( selected_data)
 
-    svc_model_path, svc_holdout_accuracy = train_and_save_svc_model(selected_data)
-    print(f'Saved SVC model: {svc_model_path}')
-    print(f'SVC holdout accuracy before final refit: {svc_holdout_accuracy:.4f}')
-
-    ann_bundle_path, ann_holdout_accuracy = train_and_save_ann_model(selected_data, ann_config=None)
-    print(f'Saved ANN model bundle: {ann_bundle_path}')
-    print(f'ANN holdout accuracy before final refit: {ann_holdout_accuracy:.4f}')
-
-    regression_metrics = run_regression(selected_data)
-    plot_regression_metrics(regression_metrics, show=False)
-    print('Regression metrics:', regression_metrics)
+    #regression metrics and model training
+    regression_price( selected_data)
 
 
 
