@@ -114,7 +114,7 @@ def plot_regression_metrics(metrics, save_path='artifacts/regression_model_compa
 
 def run_analyzer(data_path='diamonds.csv', output_path='cleaned_diamonds.csv'):
     analyzer = Analyzer(data_path)
-    analyzer.show_info()
+
 
     # Plot category distributions before preprocessing converts categories to numeric values.
     analyzer.data = prepare_clean_data(analyzer.data)
@@ -403,6 +403,9 @@ if __name__ == '__main__':
     analyzed_data = run_analyzer('diamonds.csv', 'cleaned_diamonds.csv')
     original_data = prepare_clean_data(pd.read_csv('diamonds.csv'))
 
+
+    # Allow user to choose between using the whole cleaned dataset or a custom sample for model training and evaluation.
+    #Note: The original data is used as the source for sampling to ensure that the same cleaning steps are applied regardless of the user's choice.
     print('Choose data to run models on:')
     print('1) Whole cleaned data')
     print('2) Custom record count')
@@ -426,6 +429,7 @@ if __name__ == '__main__':
     else:
         selected_data = original_data
         print(f'Using whole cleaned data with {len(selected_data)} rows.')
+    # Note: The original data is used as the source for sampling to ensure that the same cleaning steps are applied regardless of the user's choice.
 
 
     classification_metrics = run_classification(selected_data, ann_config=None)
